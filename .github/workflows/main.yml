@@ -10,7 +10,7 @@ jobs:
 
     steps:
       - name: Checkout Code
-        uses: actions@checkout@v3
+        uses: actions/checkout@v3
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v2
@@ -28,7 +28,7 @@ jobs:
           ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
           IMAGE_TAG: latest
 
-       RUN: |
+       run: |
           docker build -t $ECR_REPOSITORY .
           docker tag $ECR_REPOSITORY:latest $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
