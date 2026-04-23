@@ -1,6 +1,7 @@
 version: "3.9"
 
 services:
+
   web:
     image: "rai544/node-app:latest"
     ports:
