@@ -1,84 +1,72 @@
 pipeline {
     agent any
-
+    
+    environment {
+        AWS_ACCOUNT_ID = credentials('aws-account-id')
+    }
     stages {
-
-        stage('Clone Code') {
+        stage('code') {
             steps {
-                echo 'Cloning code'
-                git url: 'https://github.com/Rai544/node-todo-cicd.git/', branch: 'main'
+                echo 'code is cloning in this stage'
+                git url:'https://github.com/Rai544/node-todo-cicd.git/', branch:'main'
             }
         }
-
-        stage('Build Docker Image') {
+        stage('Build') {
             steps {
-                echo 'Building image'
+                echo 'code is building in this stage'
                 sh 'docker build -t dev/node-app .'
             }
         }
-
         stage('Login to ECR') {
             steps {
-                withCredentials([[
-                    $class: 'AmazonWebServicesCredentialsBinding',
-                    credentialsId: 'aws-ecr-creds'
-                ]]) {
-                    sh '''
-                    echo "Logging into ECR"
-                    aws ecr get-login-password --region eu-north-1 | \
-                    docker login --username AWS --password-stdin 915594979635.dkr.ecr.eu-north-1.amazonaws.com
-                    echo "ECR Login Successful"
-                    '''
+                withCredentials([
+                    [
+                        $class: 'AmazonWebServicesCredentialsBinding',
+                        credentialsId: 'aws-ecr-creds'
+                    ]]) {
+                    echo "loginn ECR"
+                    sh "aws ecr get-login-password --region eu-north-1 | docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.eu-north-1.amazonaws.com"
+                    echo "ECR login Seccessfully"
                 }
             }
         }
-
-        stage('Push Image to ECR') {
+        stage('Tag and push image') {
             steps {
-                sh '''
-                echo "Tagging image"
-                docker tag dev/node-app:latest 915594979635.dkr.ecr.eu-north-1.amazonaws.com/dev/node-app:latest
-
-                echo "Pushing image"
-                docker push 915594979635.dkr.ecr.eu-north-1.amazonaws.com/dev/node-app:latest
-                '''
+                echo 'Tag and Push the Image'
+                sh "docker tag dev/node-app:latest ${AWS_ACCOUNT_ID}.dkr.ecr.eu-north-1.amazonaws.com/dev/node-app:latest"
+                echo "image taged"
+                sh "docker push ${AWS_ACCOUNT_ID}.dkr.ecr.eu-north-1.amazonaws.com/dev/node-app:latest"
+                echo "image Pushed Successfully"
             }
         }
-
-        stage('Deploy on EC2') {
+        stage('SSH into EC2 and run docker compose on EC2') {
             steps {
                 sshagent(['ec2-ssh-key']) {
                     sh '''
-                    ssh -o StrictHostKeyChecking=no ubuntu@13.61.8.62 << EOF
-
-                    echo "Connected to EC2"
-
-                    # Login to ECR from EC2
-                    aws ecr get-login-password --region eu-north-1 | \
-                    docker login --username AWS --password-stdin 915594979635.dkr.ecr.eu-north-1.amazonaws.com
-
-                    # Go to app folder
-                    mkdir -p ~/node-app
-                    cd ~/node-app
-
-                    # Copy ONLY compose file approach (recommended)
-                    cat > docker-compose.yml << 'EOC'
-version: "3.8"
-
-services:
-  web:
-    image: 915594979635.dkr.ecr.eu-north-1.amazonaws.com/dev/node-app:latest
-    ports:
-      - "3000:3000"
-EOC
-
-                    docker compose down || true
-                    docker compose pull
+                    ssh -o StrictHostKeyChecking=no ubuntu@51.21.192.32 << 'EOF'
+                    
+                    echo "SSH successfully"
+                    
+                    mkdir ~/node-app
+                    cd node-app
+                    
+                    if [ -d ".git" ]; then
+                        git pull origin main
+                    else
+                        git clone https://github.com/Rai544/node-todo-cicd.git .
+                    fi
+                    aws ecr get-login-password --region eu-north-1 | docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.eu-north-1.amazonaws.com
+                    docker compose down
                     docker compose up -d
-
+                    
 EOF
                     '''
                 }
+            }
+        }
+        stage('Deploy') {
+            steps {
+                echo 'code is deploying in this stage'
             }
         }
     }
