@@ -1,0 +1,85 @@
+pipeline {
+    agent any
+
+    stages {
+
+        stage('Clone Code') {
+            steps {
+                echo 'Cloning code'
+                git url: 'https://github.com/Rai544/node-todo-cicd.git/', branch: 'main'
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                echo 'Building image'
+                sh 'docker build -t dev/node-app .'
+            }
+        }
+
+        stage('Login to ECR') {
+            steps {
+                withCredentials([[
+                    $class: 'AmazonWebServicesCredentialsBinding',
+                    credentialsId: 'aws-ecr-creds'
+                ]]) {
+                    sh '''
+                    echo "Logging into ECR"
+                    aws ecr get-login-password --region eu-north-1 | \
+                    docker login --username AWS --password-stdin 915594979635.dkr.ecr.eu-north-1.amazonaws.com
+                    echo "ECR Login Successful"
+                    '''
+                }
+            }
+        }
+
+        stage('Push Image to ECR') {
+            steps {
+                sh '''
+                echo "Tagging image"
+                docker tag dev/node-app:latest 915594979635.dkr.ecr.eu-north-1.amazonaws.com/dev/node-app:latest
+
+                echo "Pushing image"
+                docker push 915594979635.dkr.ecr.eu-north-1.amazonaws.com/dev/node-app:latest
+                '''
+            }
+        }
+
+        stage('Deploy on EC2') {
+            steps {
+                sshagent(['ec2-ssh-key']) {
+                    sh '''
+                    ssh -o StrictHostKeyChecking=no ubuntu@13.61.8.62 << EOF
+
+                    echo "Connected to EC2"
+
+                    # Login to ECR from EC2
+                    aws ecr get-login-password --region eu-north-1 | \
+                    docker login --username AWS --password-stdin 915594979635.dkr.ecr.eu-north-1.amazonaws.com
+
+                    # Go to app folder
+                    mkdir -p ~/node-app
+                    cd ~/node-app
+
+                    # Copy ONLY compose file approach (recommended)
+                    cat > docker-compose.yml << 'EOC'
+version: "3.8"
+
+services:
+  web:
+    image: 915594979635.dkr.ecr.eu-north-1.amazonaws.com/dev/node-app:latest
+    ports:
+      - "3000:3000"
+EOC
+
+                    docker compose down || true
+                    docker compose pull
+                    docker compose up -d
+
+EOF
+                    '''
+                }
+            }
+        }
+    }
+}
