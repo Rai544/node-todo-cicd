@@ -3,7 +3,7 @@ version: "3.9"
 services:
 
   web:
-    image: "rai544/node-app:latest"
+    image: "915594979635.dkr.ecr.eu-north-1.amazonaws.com/dev/node-app:latest"
     ports:
       - "8000:8000"
 
