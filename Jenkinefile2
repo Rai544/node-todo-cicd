@@ -11,12 +11,6 @@ pipeline {
                 git url:'https://github.com/Rai544/node-todo-cicd.git/', branch:'main'
             }
         }
-        stage('Build') {
-            steps {
-                echo 'code is building in this stage'
-                sh 'docker build -t dev/node-app .'
-            }
-        }
         stage('Login to ECR') {
             steps {
                 withCredentials([
@@ -25,17 +19,37 @@ pipeline {
                         credentialsId: 'aws-ecr-creds'
                     ]]) {
                     echo "loginn ECR"
-                    sh "aws ecr get-login-password --region eu-north-1 | docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.eu-north-1.amazonaws.com"
+                    sh "aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com"
                     echo "ECR login Seccessfully"
                 }
+            }
+        }
+         stage('Generate Image Tag') {
+            steps {
+                script {
+                    env.COMMIT_SHA = sh(
+                        script: 'git rev-parse --short HEAD',
+                        returnStdout: true
+                    ).trim()
+
+                    env.IMAGE_TAG = "prod-${COMMIT_SHA}-${BUILD_NUMBER}"
+
+                    echo "Generated Image Tag: ${IMAGE_TAG}"
+                }
+            }
+        }
+        stage('Build image') {
+            steps {
+                echo 'code is building in this stage'
+                sh 'docker build -t dev/node-app:${IMAGE_TAG} .'
             }
         }
         stage('Tag and push image') {
             steps {
                 echo 'Tag and Push the Image'
-                sh "docker tag dev/node-app:latest ${AWS_ACCOUNT_ID}.dkr.ecr.eu-north-1.amazonaws.com/dev/node-app:latest"
+                sh "docker tag dev/node-app:${IMAGE_TAG} ${AWS_ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com/dev/node-app:${IMAGE_TAG}"
                 echo "image taged"
-                sh "docker push ${AWS_ACCOUNT_ID}.dkr.ecr.eu-north-1.amazonaws.com/dev/node-app:latest"
+                sh "docker push ${AWS_ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com/dev/node-app:${IMAGE_TAG}"
                 echo "image Pushed Successfully"
             }
         }
@@ -43,7 +57,7 @@ pipeline {
             steps {
                 sshagent(['ec2-ssh-key']) {
                     sh '''
-                    ssh -o StrictHostKeyChecking=no ubuntu@51.21.192.32 << 'EOF'
+                    ssh -o StrictHostKeyChecking=no ubuntu@54.90.229.116 << 'EOF'
                     
                     echo "SSH successfully"
                     
@@ -55,9 +69,27 @@ pipeline {
                     else
                         git clone https://github.com/Rai544/node-todo-cicd.git .
                     fi
-                    aws ecr get-login-password --region eu-north-1 | docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.eu-north-1.amazonaws.com
-                    docker compose down
-                    docker compose up -d
+                    aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com
+                    
+                    echo "Updating ENV"
+
+                    cat > .env <<EOL
+IMAGE_TAG=${IMAGE_TAG}
+EOL
+
+                    echo "Pulling latest image"
+
+                    docker compose pull
+
+                    echo "Starting containers"
+
+                    docker compose up -d --remove-orphans
+
+                    echo "Cleaning old images"
+
+                    docker image prune -af
+
+                    echo "Deployment completed"
                     
 EOF
                     '''
